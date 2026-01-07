@@ -85,6 +85,7 @@ TICKER_CONFIG = {
     "CDR.WA":   ("CD Projekt", 2),
     "^IXIC":    ("NASDAQ Composite", 2),
     "^DJI":     ("Dow Jones Industrial Average", 2),
+    "KGH.WA":   ("KGHM", 2),
 }
 
 START_DATE = "2025-01-01"
