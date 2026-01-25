@@ -31,6 +31,12 @@ from pathlib import Path
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import requests
+import io
+import warnings
+
+# Filter warnings
+warnings.filterwarnings("ignore")
 
 # Backoff configuration
 MAX_RETRIES = 5
@@ -86,6 +92,13 @@ TICKER_CONFIG = {
     "^IXIC":    ("NASDAQ Composite", 2),
     "^DJI":     ("Dow Jones Industrial Average", 2),
     "KGH.WA":   ("KGHM", 2),
+    "GOOG":     ("Alphabet", 2),
+    "ADBE":     ("Adobe", 2),
+    "AAPL":     ("Apple", 2),
+    "MSFT":     ("Microsoft", 2),
+    "META":     ("Meta", 2),
+    "JPM":      ("JP Morgan", 2),
+    "BRK-B":    ("Berkshire Hathaway", 2),
 }
 
 START_DATE = "2025-01-01"
@@ -103,6 +116,57 @@ SMTP_CONFIG = {
     "password": "",  # Your email password or app password
     "from_email": ""  # From email address
 }
+
+# Stooq Configuration
+STOOQ_TICKERS = {
+    "wig20": ("WIG20", 2),
+    "wig": ("WIG", 2),
+    "wig_nrchom": ("WIG Nieruchomości", 2)
+}
+
+STOOQ_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+}
+
+def fetch_stooq_data(symbol, start, end):
+    """
+    Fetch historical data from Stooq.pl (CSV)
+    URL format: https://stooq.pl/q/d/l/?s=<symbol>&i=d
+    """
+    url = f"https://stooq.pl/q/d/l/?s={symbol}&i=d"
+    print(f"   (Stooq: {url})", end=" ")
+    
+    try:
+        response = requests.get(url, headers=STOOQ_HEADERS, timeout=10)
+        response.raise_for_status()
+        
+        # Stooq returns "No data" in body sometimes or just HTML if blocked/error
+        content = response.text
+        if "No data" in content or "<html" in content.lower():
+            if "<html" in content.lower():
+                print("⚠️ (HTML response/blocked)", end=" ")
+            return pd.DataFrame()
+
+        # Read CSV
+        df = pd.read_csv(io.StringIO(content))
+        
+        # Stooq CSV columns: Date, Open, High, Low, Close, Volume
+        if "Date" not in df.columns or "Close" not in df.columns:
+            return pd.DataFrame()
+            
+        # Parse Dates
+        df["Date"] = pd.to_datetime(df["Date"])
+        df.set_index("Date", inplace=True)
+        
+        # Filter by date range
+        mask = (df.index >= start) & (df.index <= end)
+        df = df.loc[mask]
+        
+        return df[["Close"]]
+
+    except Exception as e:
+        print(f"⚠️ (Stooq error: {str(e)})", end=" ")
+        return pd.DataFrame()
 
 def get_today_date():
     warsaw = pytz.timezone("Europe/Warsaw")
@@ -406,12 +470,29 @@ result_df = pd.DataFrame(index=all_dates)
 print("Yahoo Financial Market Dashboard: 🚀 Gathering data from Yahoo Finance...\n")
 
 # 3) For each ticker download history and merge with existing data
+combined_tickers = []
+# Add Yahoo tickers
 for symbol, (col_name, decimals) in TICKER_CONFIG.items():
+    combined_tickers.append({"source": "yahoo", "symbol": symbol, "col_name": col_name, "decimals": decimals})
+# Add Stooq tickers
+for symbol, (col_name, decimals) in STOOQ_TICKERS.items():
+    combined_tickers.append({"source": "stooq", "symbol": symbol, "col_name": col_name, "decimals": decimals})
+
+for item in combined_tickers:
+    source = item["source"]
+    symbol = item["symbol"]
+    col_name = item["col_name"]
+    decimals = item["decimals"]
+
     print(f"Yahoo Financial Market Dashboard: ⏳ Downloading {col_name} ({symbol})...", end=" ")
 
     try:
-        # Download historical Close with backoff retry
-        hist = fetch_with_backoff(symbol, START_DATE, end_date)
+        if source == "yahoo":
+            # Download historical Close with backoff retry
+            hist = fetch_with_backoff(symbol, START_DATE, end_date)
+        else:
+            # Download from Stooq
+            hist = fetch_stooq_data(symbol, START_DATE, end_date)
 
         if not hist.empty:
             print("✅")
