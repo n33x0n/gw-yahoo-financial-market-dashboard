@@ -148,15 +148,20 @@ def fetch_stooq_data(symbol, start, end):
             return pd.DataFrame()
 
         # Read CSV
-        try:
-            df = pd.read_csv(io.StringIO(content))
-        except Exception as csv_err:
-            print(f"⚠️ (CSV parse error: {csv_err}) content[:100]: {content[:100]!r}", end=" ")
-            return pd.DataFrame()
+        df = pd.read_csv(io.StringIO(content))
         
+        # Rename Polish columns if present
+        df.rename(columns={
+            "Data": "Date", 
+            "Zamkniecie": "Close",
+            "Otwarcie": "Open",
+            "Najwyzszy": "High",
+            "Najnizszy": "Low",
+            "Wolumen": "Volume"
+        }, inplace=True)
+
         # Stooq CSV columns: Date, Open, High, Low, Close, Volume
         if "Date" not in df.columns or "Close" not in df.columns:
-            print(f"⚠️ (Invalid columns: {df.columns.tolist()}) content[:50]: {content[:50]!r}", end=" ")
             return pd.DataFrame()
             
         # Parse Dates
