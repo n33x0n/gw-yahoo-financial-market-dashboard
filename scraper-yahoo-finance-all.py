@@ -121,7 +121,8 @@ SMTP_CONFIG = {
 STOOQ_TICKERS = {
     "wig20": ("WIG20", 2),
     "wig": ("WIG", 2),
-    "wig_nrchom": ("WIG Nieruchomości", 2)
+    "wig_nrchom": ("WIG Nieruchomości", 2),
+    "inpt.pl": ("InPost", 2)
 }
 
 STOOQ_HEADERS = {
