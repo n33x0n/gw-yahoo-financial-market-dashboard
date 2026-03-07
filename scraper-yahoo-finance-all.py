@@ -102,6 +102,7 @@ TICKER_CONFIG = {
 }
 
 START_DATE = "2025-01-01"
+NBP_START_DATE = "1998-02-26"
 OUTPUT_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scraped-data.csv")
 REPORT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports")
 EMAIL_TO = "tomasz.lebioda@wyborcza.pl"
@@ -128,6 +129,16 @@ STOOQ_TICKERS = {
 STOOQ_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+# NBP Configuration
+NBP_TICKERS = {
+    "ref": ("NBP Stopa referencyjna", 2),
+    "lom": ("NBP Stopa lombardowa", 2),
+    "dep": ("NBP Stopa depozytowa", 2),
+    "red": ("NBP Stopa redyskonta weksli", 2),
+    "dys": ("NBP Stopa dyskonta weksli", 2),
+}
+NBP_URL = "https://static.nbp.pl/dane/stopy/stopy_procentowe_archiwum.xml"
 
 def fetch_stooq_data(symbol, start, end):
     """
@@ -179,9 +190,53 @@ def fetch_stooq_data(symbol, start, end):
         print(f"⚠️ (Stooq error: {str(e)})", end=" ")
         return pd.DataFrame()
 
+def fetch_nbp_data(symbol, start, end):
+    """
+    Fetch historical interest rates from NBP (XML)
+    """
+    import xml.etree.ElementTree as ET
+    
+    try:
+        response = requests.get(NBP_URL, timeout=10)
+        response.raise_for_status()
+        
+        root = ET.fromstring(response.content)
+        data = []
+        
+        for pozycje in root.findall('pozycje'):
+            date_str = pozycje.get('obowiazuje_od')
+            for pozycja in pozycje.findall('pozycja'):
+                if pozycja.get('id') == symbol:
+                    rate_str = pozycja.get('oprocentowanie').replace(',', '.')
+                    data.append({
+                        "Date": pd.to_datetime(date_str),
+                        "Close": float(rate_str)
+                    })
+        
+        if not data:
+            return pd.DataFrame()
+            
+        df = pd.DataFrame(data)
+        df.set_index("Date", inplace=True)
+        df.sort_index(inplace=True)
+        
+        # Filter by date range
+        mask = (df.index >= start) & (df.index <= end)
+        df = df.loc[mask]
+        
+        return df[["Close"]]
+
+    except Exception as e:
+        print(f"⚠️ (NBP error: {str(e)})", end=" ")
+        return pd.DataFrame()
+
 def get_today_date():
     warsaw = pytz.timezone("Europe/Warsaw")
     return datetime.now(warsaw).strftime("%Y-%m-%d")
+
+def get_tomorrow_date():
+    warsaw = pytz.timezone("Europe/Warsaw")
+    return (datetime.now(warsaw) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
 
 def get_current_datetime():
     warsaw = pytz.timezone("Europe/Warsaw")
@@ -474,8 +529,12 @@ else:
     df_existing = None
 
 # 2) Prepare full date range from START_DATE to today
-end_date = get_today_date()
-all_dates = pd.date_range(start=START_DATE, end=end_date, freq='D', tz=None)
+today_str = get_today_date()
+end_date = get_tomorrow_date()  # Exclusive end date for yfinance means fetching up to today inclusive
+
+# Overall range starts from the earliest managed date
+global_start_date = min(START_DATE, NBP_START_DATE)
+all_dates = pd.date_range(start=global_start_date, end=today_str, freq='D', tz=None)
 result_df = pd.DataFrame(index=all_dates)
 
 print("Yahoo Financial Market Dashboard: 🚀 Gathering data from Yahoo Finance...\n")
@@ -488,6 +547,9 @@ for symbol, (col_name, decimals) in TICKER_CONFIG.items():
 # Add Stooq tickers
 for symbol, (col_name, decimals) in STOOQ_TICKERS.items():
     combined_tickers.append({"source": "stooq", "symbol": symbol, "col_name": col_name, "decimals": decimals})
+# Add NBP tickers
+for symbol, (col_name, decimals) in NBP_TICKERS.items():
+    combined_tickers.append({"source": "nbp", "symbol": symbol, "col_name": col_name, "decimals": decimals})
 
 for item in combined_tickers:
     source = item["source"]
@@ -497,13 +559,21 @@ for item in combined_tickers:
 
     print(f"Yahoo Financial Market Dashboard: ⏳ Downloading {col_name} ({symbol})...", end=" ")
 
+    # Source-specific start date
+    current_start = START_DATE
+    if source == "nbp":
+        current_start = NBP_START_DATE
+
     try:
         if source == "yahoo":
             # Download historical Close with backoff retry
-            hist = fetch_with_backoff(symbol, START_DATE, end_date)
-        else:
+            hist = fetch_with_backoff(symbol, current_start, end_date)
+        elif source == "stooq":
             # Download from Stooq
-            hist = fetch_stooq_data(symbol, START_DATE, end_date)
+            hist = fetch_stooq_data(symbol, current_start, end_date)
+        else:
+            # Download from NBP
+            hist = fetch_nbp_data(symbol, current_start, end_date)
 
         if not hist.empty:
             print("✅")
@@ -531,6 +601,10 @@ for item in combined_tickers:
 
     # Reindex to full date range
     series_new = series_new.reindex(all_dates)
+
+    # Forward fill for NBP data as XML only contains change dates
+    if source == "nbp":
+        series_new = series_new.ffill()
 
     # If there was previous data, merge: new overwrites, old preserved
     if df_existing is not None and col_name in df_existing.columns:
