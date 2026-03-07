@@ -603,7 +603,8 @@ for item in combined_tickers:
     series_new = series_new.reindex(all_dates)
 
     # If there was previous data, merge: new overwrites, old preserved
-    if df_existing is not None and col_name in df_existing.columns:
+    # Skip merging for NBP - we always want the fresh XML state (without filling)
+    if source != "nbp" and df_existing is not None and col_name in df_existing.columns:
         series_existing = df_existing[col_name].reindex(all_dates)
         combined = series_new.combine_first(series_existing)
     else:
