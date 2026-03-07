@@ -602,10 +602,6 @@ for item in combined_tickers:
     # Reindex to full date range
     series_new = series_new.reindex(all_dates)
 
-    # Forward fill for NBP data as XML only contains change dates
-    if source == "nbp":
-        series_new = series_new.ffill()
-
     # If there was previous data, merge: new overwrites, old preserved
     if df_existing is not None and col_name in df_existing.columns:
         series_existing = df_existing[col_name].reindex(all_dates)
