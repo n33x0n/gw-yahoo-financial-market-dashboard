@@ -74,9 +74,8 @@ ipython_config.py
 *.log
 logs/
 
-# Data files (uncomment if you don't want to track CSV files)
-# *.csv
-# scraped-data.csv
+# Data files
+scraped-data.csv
 
 # Backup files
 *.bak
