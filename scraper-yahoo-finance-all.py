@@ -621,6 +621,8 @@ for item in combined_tickers:
 # 4) Save result to CSV
 result_df = result_df.reset_index().rename(columns={"index": "date"})
 result_df["date"] = result_df["date"].dt.strftime("%Y-%m-%d")
+# Drop rows where all non-date columns are NaN
+result_df = result_df.dropna(subset=result_df.columns.difference(["date"]), how="all")
 result_df.to_csv(OUTPUT_FILE, index=False)
 
 print(f"\nYahoo Financial Market Dashboard: 🎉 Done. Written to {OUTPUT_FILE} from {START_DATE} to {end_date} 📈")
